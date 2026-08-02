@@ -20,7 +20,11 @@ require_relative "al_rtl/version"
 # *consequence* of direction, and forcing it breaks centred headings.
 module AlRtl
   PLUGIN_ROOT = File.expand_path("..", __dir__)
-  ASSETS_ROOT = File.join(PLUGIN_ROOT, "lib", "assets")
+  # Jekyll writes a StaticFile to <dest>/<dir>/<name>, where <dir> is relative
+  # to the base below. That base must be lib/, not the gem root, or assets land
+  # at /lib/assets/... while every tag in this file points at /assets/... .
+  LIB_ROOT = __dir__
+  ASSETS_ROOT = File.join(LIB_ROOT, "assets")
 
   # ISO 639 codes for the scripts written right-to-left. Overridable via
   # `al_rtl.langs`, but shipping a default means most sites configure nothing.
@@ -50,8 +54,21 @@ module AlRtl
 
   # The page's own `lang` wins over the site default, so a single RTL post on an
   # otherwise English site renders correctly.
+  #
+  # Reads through `[]` rather than testing for Hash: at render time Jekyll hands
+  # `registers[:page]` a Drop (Jekyll::Drops::DocumentDrop), not a Hash, so an
+  # `is_a?(Hash)` guard silently discards every page's front matter and falls
+  # back to the site language.
+  def page_value(page, key)
+    return nil unless page.respond_to?(:[])
+
+    page[key]
+  rescue StandardError
+    nil
+  end
+
   def language_for(site, page)
-    page_lang = page.is_a?(Hash) ? page["lang"] : nil
+    page_lang = page_value(page, "lang")
     return page_lang unless page_lang.to_s.strip.empty?
 
     site&.config&.[]("lang")
@@ -70,6 +87,14 @@ module AlRtl
     language_for(site, page).to_s.strip
   end
 
+  # [relative_dir, filename] for everything this gem publishes. Exposed so the
+  # destination path can be asserted without booting a full Jekyll site.
+  def asset_entries
+    Dir.glob(File.join(ASSETS_ROOT, "**", "*")).sort.reject { |p| File.directory?(p) }.map do |source_path|
+      [File.dirname(source_path).sub("#{LIB_ROOT}/", ""), File.basename(source_path)]
+    end
+  end
+
   class AssetsGenerator < Jekyll::Generator
     safe true
     priority :low
@@ -78,8 +103,8 @@ module AlRtl
       Dir.glob(File.join(ASSETS_ROOT, "**", "*")).sort.each do |source_path|
         next if File.directory?(source_path)
 
-        relative_dir = File.dirname(source_path).sub("#{PLUGIN_ROOT}/", "")
-        site.static_files << PluginStaticFile.new(site, PLUGIN_ROOT, relative_dir, File.basename(source_path))
+        relative_dir = File.dirname(source_path).sub("#{LIB_ROOT}/", "")
+        site.static_files << PluginStaticFile.new(site, LIB_ROOT, relative_dir, File.basename(source_path))
       end
     end
   end

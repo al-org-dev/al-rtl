@@ -139,4 +139,43 @@ class RtlTest < Minitest::Test
     assert_match(/\[dir="rtl"\]\s+pre/, css)
     assert_includes css, "direction: ltr"
   end
+
+  # --- regression: Jekyll hands us a Drop, not a Hash ---------------------
+
+  def test_reads_front_matter_from_a_drop_not_just_a_hash
+    # Jekyll sets registers[:page] to a DocumentDrop. An earlier version tested
+    # `page.is_a?(Hash)`, which made every real page fall back to site.lang and
+    # silently disabled the plugin site-wide, while these tests passed.
+    assert AlRtl.rtl?(site_with("lang" => "en"), DropLike.new("lang" => "fa"))
+    refute AlRtl.rtl?(site_with("lang" => "en"), DropLike.new("lang" => "de"))
+  end
+
+  def test_html_attrs_uses_drop_front_matter
+    html = render("{% al_rtl_html_attrs %}", site: site_with("lang" => "en"), page: DropLike.new("lang" => "he"))
+
+    assert_includes html, 'dir="rtl"'
+    assert_includes html, 'lang="he"'
+  end
+
+  # --- regression: assets must land where the tags point ------------------
+
+  def test_assets_are_published_under_slash_assets
+    # Jekyll writes a StaticFile to <dest>/<dir>/<name>. Basing it on the gem
+    # root instead of lib/ puts everything under /lib/assets/..., while every
+    # tag emits /assets/... — a 404 that only shows up in a real build.
+    entries = AlRtl.asset_entries
+
+    refute_empty entries
+    entries.each do |relative_dir, name|
+      assert relative_dir.start_with?("assets/al_rtl"),
+             "#{relative_dir}/#{name} would be published outside /assets/al_rtl"
+      refute_includes relative_dir, "lib/"
+    end
+  end
+
+  def test_every_referenced_asset_is_actually_published
+    published = AlRtl.asset_entries.map { |dir, name| "/#{dir}/#{name}" }
+
+    assert_includes published, "/assets/al_rtl/css/rtl.css"
+  end
 end
